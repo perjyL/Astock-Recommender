@@ -1,0 +1,8 @@
+akshare
+pandas
+numpy
+scikit-learn
+matplotlib
+ta
+
+pip install -r requirements.txt

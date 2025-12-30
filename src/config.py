@@ -1,0 +1,13 @@
+# 指数代码（沪深300）
+INDEX_CODE = "000300"
+
+# 回测与训练时间范围
+START_DATE = "20220101"
+END_DATE = "20241231"
+
+# 投资决策阈值
+BUY_THRESHOLD = 0.6
+SELL_THRESHOLD = 0.4
+
+# 随机种子
+RANDOM_STATE = 42
