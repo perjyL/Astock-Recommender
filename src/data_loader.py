@@ -1,6 +1,6 @@
 import akshare as ak
 import pandas as pd
-from config import START_DATE, END_DATE
+from src.config import START_DATE, END_DATE
 
 
 def get_index_constituents(index_code):

@@ -4,6 +4,7 @@ from src.model import train_model
 from src.predictor import make_decision
 from src.visualization import plot_price_ma, plot_macd, plot_volume
 from src.config import INDEX_CODE
+from src.recommender import hs300_recommendation
 import pandas as pd
 
 
@@ -41,5 +42,10 @@ def main():
     plot_volume(df, symbol)
 
 
+
 if __name__ == "__main__":
-    main()
+    df = hs300_recommendation()
+    df.to_csv("output/hs300_recommendation.csv", index=False, encoding="utf-8-sig")
+
+    print("\n===== 沪深300 推荐结果（Top 10） =====")
+    print(df.head(10))

@@ -1,4 +1,4 @@
-from config import BUY_THRESHOLD, SELL_THRESHOLD
+from src.config import BUY_THRESHOLD, SELL_THRESHOLD
 
 
 def make_decision(model, X_latest):

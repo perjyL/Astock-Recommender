@@ -1,5 +1,9 @@
 import matplotlib.pyplot as plt
 
+# 设置中文字体（Windows）
+plt.rcParams["font.sans-serif"] = ["SimHei"]  # 黑体
+plt.rcParams["axes.unicode_minus"] = False    # 解决负号显示问题
+
 
 def plot_price_ma(df, symbol):
     plt.figure(figsize=(12, 6))
