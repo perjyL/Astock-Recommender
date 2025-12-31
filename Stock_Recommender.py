@@ -13,7 +13,7 @@ def main():
 
     print(f"指数 {INDEX_CODE} 成分股数量：{len(stocks)}")
 
-    # 示例：只演示前 1 只（作业展示用）
+    # 示例演示
     symbol = stocks[0]
     print(f"\n分析股票：{symbol}")
 
