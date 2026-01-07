@@ -7,10 +7,10 @@ stocks = ak.index_stock_cons_csindex(symbol="000300")
 
 # 2.个股历史行情（日频）
 df = ak.stock_zh_a_hist(
-    symbol="600519",
+    symbol="603296",
     period="daily",
     start_date="20230101",
-    end_date="20251230",
+    end_date="20250107",
     adjust="qfq"
 )
 

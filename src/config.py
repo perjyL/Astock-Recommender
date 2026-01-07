@@ -3,7 +3,7 @@ INDEX_CODE = "000300"
 
 # 回测与训练时间范围
 START_DATE = "20230101"
-END_DATE = "20250105"
+END_DATE = "20260107"
 
 # 投资决策阈值
 BUY_THRESHOLD = 0.55
@@ -14,8 +14,8 @@ RANDOM_STATE = 42
 
 # 模型选择
 # MODEL_TYPE = "transformer"
-MODEL_TYPE = "randomforest"
-# MODEL_TYPE = "xgboost"
+# MODEL_TYPE = "randomforest"
+MODEL_TYPE = "xgboost"
 
 # Transformer 参数
 TRANSFORMER_WINDOW = 20
