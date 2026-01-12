@@ -75,7 +75,7 @@ def transformer_predict(model, X, feature_cols=None):
 # ======================================================
 # 沪深300 推荐主函数
 # ======================================================
-def hs300_recommendation():
+def hs300_recommendation(use_realtime=False):
     global JOINT_TRANSFORMER_MODEL
 
     hs300 = ak.index_stock_cons_csindex(symbol="000300")
@@ -98,7 +98,7 @@ def hs300_recommendation():
             all_dfs = []
             for _, r in hs300.iterrows():
                 try:
-                    df_i = get_stock_history(r["成分券代码"])
+                    df_i = get_stock_history(r["成分券代码"], use_realtime=use_realtime)
                     df_i = add_features(df_i)
                     if len(df_i) >= 30:
                         all_dfs.append(df_i)
@@ -121,7 +121,7 @@ def hs300_recommendation():
 
         try:
             # 1️⃣ 数据加载
-            df_raw = get_stock_history(code)
+            df_raw = get_stock_history(code, use_realtime=use_realtime)
             if df_raw.empty:
                 raise ValueError("行情数据为空")
 

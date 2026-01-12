@@ -12,7 +12,7 @@ df = ak.stock_zh_a_hist(
     symbol=symbol,
     period="daily",
     start_date="20230101",
-    end_date="20260108",
+    end_date="20260112",
     adjust="qfq"
 )
 
