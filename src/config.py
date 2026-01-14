@@ -36,11 +36,19 @@ RETURN_TARGET = "ret_5d"   # ret_5d / ret_10d
 # 组合构建参数
 # =========================
 TOP_K = 20                # 多头持仓数量
+HOLD_N = 5                   # 你的N（预测/持有窗口）
 MIN_TRAIN_SIZE = 200
 PORTFOLIO_TARGET_COL = "ret_5d"
 REALIZED_RET_COL = "ret_1d_fwd"
 REBALANCE_N = 5              # 1=日调仓；5=5日调仓
-COST_RATE = 0.001            # 千分之一单边（示例）
+COST_RATE = 0.001            # # 开仓单边成本（简化）
+
+WEIGHT_MODE = "equal"              # equal / proportional / softmax
+SOFTMAX_TAU = 1.0
+
+VERBOSE_DAY = True
+VERBOSE_STOCK = False
+PRINT_TOPK = True
 # ==================================================
 
 
