@@ -492,33 +492,33 @@ def backtest_topk_portfolio_rollover(initial_cash=1_000_000.0):
     try:
         vz.plot_equity_curve(details_df,
                              benchmark_df=None,
-                             title="策略净值曲线（Strategy）",
+                             title=None,
                              save_path=fig("01_equity_curve"))
 
         vz.plot_drawdown_curve(details_df,
-                               title="回撤曲线（Drawdown）",
+                               title=None,
                                save_path=fig("02_drawdown"))
 
         vz.plot_return_hist(details_df,
                             col="daily_pct",
                             bins=60,
-                            title="策略日收益分布直方图（daily_pct）",
+                            title=None,
                             save_path=fig("03_return_hist"))
 
         vz.plot_total_balance(details_df,
-                              title="每日总余额（Total Balance）",
+                              title=None,
                               save_path=fig("04_total_balance"))
 
         vz.plot_daily_pnl(details_df,
-                          title="每日盈亏（PnL = ΔBalance）",
+                          title=None,
                           save_path=fig("05_daily_pnl"))
 
         vz.plot_pred_vs_true_scatter(pred_records_df,
-                                     title=f"预测收益 vs 实际收益（{TARGET_COL}）",
+                                     title=None,
                                      save_path=fig("06_pred_vs_true_scatter"))
 
         vz.plot_cash_utilization(details_df,
-                                 title="资金利用率（Invested Ratio）",
+                                 title=None,
                                  save_path=fig("07_invested_ratio"))
 
         # turnover 你目前没有严格定义（需要交易前后仓位变化），这里先不画

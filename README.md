@@ -17,6 +17,7 @@ Ashares-Recommender/
 ├─ Example_DataDisplay.py          # 数据与指标展示示例脚本
 ├─ Stock_Recommender_Backtest.py   # 逐日 Walk-Forward 回测（分类）
 ├─ Stock_Recommender_Backtest_1.py # Top-K 组合分桶滚动回测（回归）
+├─ Stock_Recommender_ActionGuide.py # 明日操作行动指南（基于 Top-K 回归策略）
 ├─ README.md
 ├─ requirements.txt
 ├─ output/
@@ -58,6 +59,12 @@ python Stock_Recommender_Backtest.py
 python Stock_Recommender_Backtest_1.py
 ```
 
+4. 明日操作行动指南（可选）
+
+```bash
+python Stock_Recommender_ActionGuide.py --capital 1000000
+```
+
 ## 使用方式
 - 批量推荐（默认入口）：
   - `Stock_Recommender.py` 调用 `recommender.hs300_recommendation()`
@@ -67,6 +74,8 @@ python Stock_Recommender_Backtest_1.py
 - 回测：
   - `Stock_Recommender_Backtest.py`：逐日 Walk-Forward（分类）
   - `Stock_Recommender_Backtest_1.py`：Top-K 组合分桶滚动（回归）
+- 明日行动指南：
+  - `Stock_Recommender_ActionGuide.py`：根据最近收盘数据生成次日建仓清单与资金分配
 
 ## 配置
 位置：`src/config.py`
@@ -85,6 +94,8 @@ python Stock_Recommender_Backtest_1.py
 - `WEIGHT_MODE` / `SOFTMAX_TAU` / `COST_RATE`：组合权重与成本假设
 - `BACKTEST_START` / `BACKTEST_END`：组合回测区间
 - `FIG_DIR`：回测图表输出目录
+- `PLOT_FONT`：绘图字体方案（`auto` / `simhei` / `pingfang` / `en`）
+- `PLOT_LANG`：图表文字语言（`zh` / `en`）
 
 ## 输出
 `output/hs300_recommendation.csv` 字段说明：
@@ -99,6 +110,9 @@ python Stock_Recommender_Backtest_1.py
 - `output/portfolio_rollover_daily_details.csv`：Top-K 分桶回测明细
 - `output/figs/`：净值曲线、回撤、收益分布、预测散点等图表
 
+明日行动指南输出：
+- `output/next_day_action_guide.csv`：次日 Top-K 建仓清单与建议资金
+
 ## 依赖
 - `requirements.txt`：akshare、pandas、numpy、scikit-learn、xgboost、matplotlib、ta
 - 若启用 Transformer：需额外安装 `torch`
@@ -107,7 +121,8 @@ python Stock_Recommender_Backtest_1.py
 ## 注意
 - AkShare 需要网络访问；个别股票数据异常会被跳过
 - Transformer 对样本长度有要求，样本过短会报错
-- 可视化默认使用 Windows 字体 `SimHei`，非 Windows 系统需自行替换
+- 可视化字体默认按系统自动选择（Windows/ macOS 会优先选择常见中文字体）
+  - 也可在 `PLOT_FONT` / `PLOT_LANG` 中切换到 PingFang 或英文标签以避免字体警告
 
 ## 算法简述
 先用历史行情构造技术指标特征，并用“下一交易日是否上涨”作为分类标签；分类模型（随机森林 / XGBoost / Transformer）输出上涨概率，映射为 Buy/Hold/Sell。回归模型则预测未来 N 日收益（如 `ret_5d`），用于 Top-K 组合构建与分桶滚动回测。若开启联合 Transformer，会把指数成分股的数据合并训练一次，再对单股取最后窗口做预测。

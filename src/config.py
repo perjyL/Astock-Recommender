@@ -47,7 +47,7 @@ FEATURE_COLS = [
 
 # 组合构建参数
 # =========================
-TOP_K = 20                # 多头持仓数量
+TOP_K = 10                # 多头持仓数量
 HOLD_N = 5                   # 你的N（预测/持有窗口）
 MIN_TRAIN_SIZE = 200
 PORTFOLIO_TARGET_COL = "ret_5d"
@@ -64,10 +64,24 @@ PRINT_TOPK = True
 # =========================
 
 # 组合回测区间（默认：2025 全年）
-BACKTEST_START = "2025-01-01"
-BACKTEST_END = "2025-12-31"
+BACKTEST_START = "2024-01-01"
+BACKTEST_END = "2024-12-31"
 
 FIG_DIR = "output/figs"
+# ==================================================
+
+# 绘图字体与语言
+# =========================
+# PLOT_FONT:
+#   auto / simhei / pingfang / en
+#   - Windows 推荐 simhei
+#   - macOS 推荐 pingfang
+#   - en: 强制使用英文标签，避免中文字体缺失告警
+PLOT_FONT = "auto"
+
+# PLOT_LANG:
+#   zh / en
+PLOT_LANG = "en"
 # ==================================================
 
 

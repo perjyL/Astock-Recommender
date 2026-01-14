@@ -1,12 +1,43 @@
 # src/visualization.py
 import os
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from src.config import PLOT_FONT, PLOT_LANG
 
-# 设置中文字体（Windows）
-plt.rcParams["font.sans-serif"] = ["SimHei"]  # 黑体
-plt.rcParams["axes.unicode_minus"] = False    # 解决负号显示问题
+def _font_candidates():
+    scheme = (PLOT_FONT or "auto").lower().strip()
+    if scheme == "simhei":
+        return ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+    if scheme == "pingfang":
+        return ["PingFang SC", "PingFang TC", "Heiti SC", "Arial Unicode MS"]
+    if scheme in {"en", "english"}:
+        return ["DejaVu Sans", "Arial", "Helvetica"]
+    if sys.platform.startswith("win"):
+        return ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+    if sys.platform == "darwin":
+        return ["PingFang SC", "PingFang TC", "Heiti SC", "Arial Unicode MS"]
+    return ["Noto Sans CJK SC", "WenQuanYi Zen Hei", "DejaVu Sans"]
+
+
+def _apply_font():
+    try:
+        from matplotlib import font_manager
+    except Exception:
+        return
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    selected = [f for f in _font_candidates() if f in available]
+    if selected:
+        plt.rcParams["font.sans-serif"] = selected
+    plt.rcParams["axes.unicode_minus"] = False
+
+
+def _t(zh: str, en: str) -> str:
+    return en if (PLOT_LANG or "zh").lower() == "en" else zh
+
+
+_apply_font()
 
 
 # =========================
@@ -18,7 +49,7 @@ def plot_price_ma(df, symbol):
     plt.plot(df["MA5"], label="MA5")
     plt.plot(df["MA10"], label="MA10")
     plt.plot(df["MA20"], label="MA20")
-    plt.title(f"{symbol} 价格与均线")
+    plt.title(_t(f"{symbol} 价格与均线", f"{symbol} Price & Moving Averages"))
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -29,7 +60,7 @@ def plot_macd(df, symbol):
     plt.bar(df.index, df["MACD"], label="MACD")
     plt.plot(df["DIF"], label="DIF")
     plt.plot(df["DEA"], label="DEA")
-    plt.title(f"{symbol} MACD 指标")
+    plt.title(_t(f"{symbol} MACD 指标", f"{symbol} MACD Indicator"))
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -39,7 +70,7 @@ def plot_volume(df, symbol):
     plt.figure(figsize=(12, 4))
     plt.bar(df.index, df["成交量"], label="Volume")
     plt.plot(df["VOL_MA5"], label="VOL_MA5")
-    plt.title(f"{symbol} 成交量变化")
+    plt.title(_t(f"{symbol} 成交量变化", f"{symbol} Volume"))
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -71,7 +102,7 @@ def compute_drawdown(equity: pd.Series) -> pd.Series:
 
 def plot_equity_curve(details_df: pd.DataFrame,
                       benchmark_df: pd.DataFrame | None = None,
-                      title="策略净值曲线（含基准）",
+                      title=None,
                       save_path: str | None = None):
     """
     details_df 需要至少包含:
@@ -109,9 +140,11 @@ def plot_equity_curve(details_df: pd.DataFrame,
             bench_equity = bench_equity.reindex(df.index).ffill()
             plt.plot(bench_equity, label="Benchmark")
 
+    if title is None:
+        title = _t("策略净值曲线（含基准）", "Strategy Equity Curve (with Benchmark)")
     plt.title(title)
-    plt.xlabel("Date")
-    plt.ylabel("Equity (Normalized)")
+    plt.xlabel(_t("日期", "Date"))
+    plt.ylabel(_t("净值（归一化）", "Equity (Normalized)"))
     plt.legend()
     plt.grid(True, alpha=0.25)
     plt.tight_layout()
@@ -119,7 +152,7 @@ def plot_equity_curve(details_df: pd.DataFrame,
 
 
 def plot_drawdown_curve(details_df: pd.DataFrame,
-                        title="回撤曲线（Drawdown）",
+                        title=None,
                         save_path: str | None = None):
     df = details_df.copy()
     df["date"] = pd.to_datetime(df["date"])
@@ -130,9 +163,11 @@ def plot_drawdown_curve(details_df: pd.DataFrame,
     plt.figure(figsize=(12, 4))
     plt.plot(dd, label="Drawdown")
     plt.axhline(0, linewidth=1)
+    if title is None:
+        title = _t("回撤曲线（Drawdown）", "Drawdown Curve")
     plt.title(title)
-    plt.xlabel("Date")
-    plt.ylabel("Drawdown")
+    plt.xlabel(_t("日期", "Date"))
+    plt.ylabel(_t("回撤", "Drawdown"))
     plt.grid(True, alpha=0.25)
     plt.tight_layout()
     _save_or_show(save_path)
@@ -141,23 +176,25 @@ def plot_drawdown_curve(details_df: pd.DataFrame,
 def plot_return_hist(details_df: pd.DataFrame,
                      col="portfolio_ret",
                      bins=60,
-                     title="收益分布直方图",
+                     title=None,
                      save_path: str | None = None):
     df = details_df.copy()
     r = df[col].dropna().astype(float)
 
     plt.figure(figsize=(10, 5))
     plt.hist(r, bins=bins)
+    if title is None:
+        title = _t("收益分布直方图", "Return Distribution Histogram")
     plt.title(title)
-    plt.xlabel("Return")
-    plt.ylabel("Frequency")
+    plt.xlabel(_t("收益率", "Return"))
+    plt.ylabel(_t("频数", "Frequency"))
     plt.grid(True, alpha=0.25)
     plt.tight_layout()
     _save_or_show(save_path)
 
 
 def plot_pred_vs_true_scatter(pred_records_df: pd.DataFrame,
-                              title="预测收益 vs 实际收益（散点图）",
+                              title=None,
                               save_path: str | None = None):
     """
     pred_records_df: 每日每股预测记录（你在 backtest_portfolio 里可以保存）
@@ -176,16 +213,18 @@ def plot_pred_vs_true_scatter(pred_records_df: pd.DataFrame,
     plt.scatter(x, y, s=8)
     plt.axhline(0, linewidth=1)
     plt.axvline(0, linewidth=1)
+    if title is None:
+        title = _t("预测收益 vs 实际收益（散点图）", "Predicted vs Realized Return")
     plt.title(title)
-    plt.xlabel("Predicted future return")
-    plt.ylabel("Realized future return")
+    plt.xlabel(_t("预测收益", "Predicted future return"))
+    plt.ylabel(_t("实际收益", "Realized future return"))
     plt.grid(True, alpha=0.25)
     plt.tight_layout()
     _save_or_show(save_path)
 
 
 def plot_cash_utilization(details_df: pd.DataFrame,
-                          title="资金利用率（Invested / Total）",
+                          title=None,
                           save_path: str | None = None):
     """
     details_df 需要包含:
@@ -203,16 +242,18 @@ def plot_cash_utilization(details_df: pd.DataFrame,
     plt.figure(figsize=(12, 4))
     plt.plot(df["invested_ratio"], label="Invested Ratio")
     plt.ylim(0, 1.05)
+    if title is None:
+        title = _t("资金利用率（Invested / Total）", "Cash Utilization (Invested / Total)")
     plt.title(title)
-    plt.xlabel("Date")
-    plt.ylabel("Ratio")
+    plt.xlabel(_t("日期", "Date"))
+    plt.ylabel(_t("比例", "Ratio"))
     plt.grid(True, alpha=0.25)
     plt.tight_layout()
     _save_or_show(save_path)
 
 
 def plot_turnover(details_df: pd.DataFrame,
-                  title="换手率（Turnover）",
+                  title=None,
                   save_path: str | None = None):
     """
     details_df 需要包含:
@@ -229,16 +270,18 @@ def plot_turnover(details_df: pd.DataFrame,
 
     plt.figure(figsize=(12, 4))
     plt.plot(df["turnover"], label="Turnover")
+    if title is None:
+        title = _t("换手率（Turnover）", "Turnover")
     plt.title(title)
-    plt.xlabel("Date")
-    plt.ylabel("Turnover")
+    plt.xlabel(_t("日期", "Date"))
+    plt.ylabel(_t("换手率", "Turnover"))
     plt.grid(True, alpha=0.25)
     plt.tight_layout()
     _save_or_show(save_path)
 
 
 def plot_total_balance(details_df: pd.DataFrame,
-                       title="每日总余额（Total Balance）",
+                       title=None,
                        save_path: str | None = None):
     """
     details_df 需要包含:
@@ -255,16 +298,18 @@ def plot_total_balance(details_df: pd.DataFrame,
 
     plt.figure(figsize=(12, 5))
     plt.plot(df["total_balance"], label="Total Balance")
+    if title is None:
+        title = _t("每日总余额（Total Balance）", "Total Balance")
     plt.title(title)
-    plt.xlabel("Date")
-    plt.ylabel("Balance")
+    plt.xlabel(_t("日期", "Date"))
+    plt.ylabel(_t("余额", "Balance"))
     plt.grid(True, alpha=0.25)
     plt.tight_layout()
     _save_or_show(save_path)
 
 
 def plot_daily_pnl(details_df: pd.DataFrame,
-                   title="每日盈亏（ΔBalance）",
+                   title=None,
                    save_path: str | None = None):
     """
     details_df 需要包含:
@@ -282,8 +327,10 @@ def plot_daily_pnl(details_df: pd.DataFrame,
     plt.figure(figsize=(12, 4))
     plt.plot(df["pnl"], label="PnL")
     plt.axhline(0, linewidth=1)
+    if title is None:
+        title = _t("每日盈亏（ΔBalance）", "Daily PnL (ΔBalance)")
     plt.title(title)
-    plt.xlabel("Date")
+    plt.xlabel(_t("日期", "Date"))
     plt.ylabel("PnL")
     plt.grid(True, alpha=0.25)
     plt.tight_layout()
