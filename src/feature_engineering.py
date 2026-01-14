@@ -29,6 +29,7 @@ def add_features(df: pd.DataFrame):
 
     # 未来 1 / 5 / 10 日收益
     df["ret_1d_fwd"] = df["收盘"].shift(-1) / df["收盘"] - 1
+    df["ret_1d_open_fwd"] = df["开盘"].shift(-1) / df["开盘"] - 1
     df["ret_5d"] = df["收盘"].shift(-5) / df["收盘"] - 1
     df["ret_10d"] = df["收盘"].shift(-10) / df["收盘"] - 1
 

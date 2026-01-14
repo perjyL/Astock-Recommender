@@ -9,4 +9,4 @@ print("年化收益率：", f"{result['annual_return']:.2%}")
 print("最大回撤：", f"{result['max_drawdown']:.2%}")
 
 result["details"].to_csv("output/portfolio_rollover_daily_details.csv", index=False, encoding="utf-8-sig")
-print("✅ 明细已保存：output/portfolio_rollover_daily_details.csv")
+print("✅ 明细已保存：output/portfolio_rollover_daily_details_K10N5.csv")

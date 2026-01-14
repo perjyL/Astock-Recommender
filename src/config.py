@@ -35,7 +35,7 @@ RETURN_TARGET = "ret_5d"   # ret_5d / ret_10d
 
 # 组合构建参数
 # =========================
-TOP_K = 20                # 多头持仓数量
+TOP_K = 5                # 多头持仓数量
 HOLD_N = 5                   # 你的N（预测/持有窗口）
 MIN_TRAIN_SIZE = 200
 PORTFOLIO_TARGET_COL = "ret_5d"
