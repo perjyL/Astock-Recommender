@@ -27,10 +27,22 @@ MODEL_TYPE_REG = "xgb_reg"     # ridge / rf_reg / xgb_reg
 MODEL_TYPE_CLS = "randomforest"
 # MODEL_TYPE_CLS = "xgboost"
 
+# 兼容旧脚本（Stock_Recommender.py / recommender.py）
+MODEL_TYPE = MODEL_TYPE_CLS
+
 
 # 回归目标
 # =========================
 RETURN_TARGET = "ret_5d"   # ret_5d / ret_10d
+
+
+# 特征列（由 feature_engineering.add_features 生成）
+# =========================
+FEATURE_COLS = [
+    "MA5", "MA10", "MA20",
+    "DIF", "DEA", "MACD",
+    "VOL_MA5", "Volatility"
+]
 
 
 # 组合构建参数
@@ -49,6 +61,13 @@ SOFTMAX_TAU = 1.0
 VERBOSE_DAY = True
 VERBOSE_STOCK = False
 PRINT_TOPK = True
+# =========================
+
+# 组合回测区间（默认：2025 全年）
+BACKTEST_START = "2025-01-01"
+BACKTEST_END = "2025-12-31"
+
+FIG_DIR = "output/figs"
 # ==================================================
 
 

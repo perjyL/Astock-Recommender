@@ -2,7 +2,11 @@
 import time
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, **kwargs):
+        return iterable
 
 from src.data_loader import get_index_constituents, get_stock_history
 from src.feature_engineering import add_features
@@ -122,6 +126,8 @@ def _calc_weights(pred_values: np.ndarray) -> np.ndarray:
     输入：TopK 的预测收益（可以为负）
     输出：TopK 权重，和为1
     """
+    pred_values = np.asarray(pred_values, dtype=float)
+    pred_values = np.where(np.isfinite(pred_values), pred_values, 0.0)
     k = len(pred_values)
     if k == 0:
         return np.array([])
@@ -145,6 +151,25 @@ def _calc_weights(pred_values: np.ndarray) -> np.ndarray:
         return w / w.sum()
 
     return np.ones(k) / k
+
+
+def _validate_stock_df(df: pd.DataFrame):
+    required = set(FEATURE_COLS + [TARGET_COL, REALIZED_RET_COL])
+    missing = [c for c in required if c not in df.columns]
+    return missing
+
+
+def _pick_base_dates(all_stock_dfs, start_date, end_date):
+    candidates = []
+    for df in all_stock_dfs.values():
+        if df is None or df.empty:
+            continue
+        idx = df.loc[start_date:end_date].index
+        if len(idx) > 0:
+            candidates.append(idx)
+    if not candidates:
+        raise RuntimeError("回测区间无有效交易日")
+    return max(candidates, key=len)
 
 
 # -----------------------------
@@ -192,8 +217,12 @@ class Bucket:
             r_port = 0.0
         else:
             wts = np.array(wts)
-            wts = wts / wts.sum()
-            r_port = float(np.dot(wts, np.array(rets)))
+            w_sum = wts.sum()
+            if w_sum <= 1e-12:
+                r_port = 0.0
+            else:
+                wts = wts / w_sum
+                r_port = float(np.dot(wts, np.array(rets)))
 
         before = self.value
         self.value *= (1.0 + r_port)
@@ -222,6 +251,10 @@ def backtest_topk_portfolio_rollover(initial_cash=1_000_000.0):
     from src import visualization as vz  # 结束时画图
 
     model_type_norm = _normalize_model_type(MODEL_TYPE_REG)
+    if HOLD_N < 1:
+        raise ValueError("HOLD_N 必须 >= 1")
+    if TOP_K <= 0:
+        raise ValueError("TOP_K 必须 > 0")
     hold_steps = max(1, HOLD_N - 1)  # 分桶数 = N-1
 
     print("\n==============================")
@@ -242,20 +275,34 @@ def backtest_topk_portfolio_rollover(initial_cash=1_000_000.0):
 
     # 1) 股票池
     symbols = get_index_constituents(INDEX_CODE)
+    if not symbols:
+        raise RuntimeError(f"指数 {INDEX_CODE} 成分股为空，无法回测")
     print(f"📌 成分股数量: {len(symbols)}")
 
     # 2) 预加载数据
     all_stock_dfs = {}
     for i, s in enumerate(symbols, 1):
-        df = get_stock_history(s)
-        df = add_features(df)
-        all_stock_dfs[s] = df
+        try:
+            df = get_stock_history(s)
+            if df is None or df.empty:
+                raise ValueError("行情为空")
+            df = add_features(df)
+            missing_cols = _validate_stock_df(df)
+            if missing_cols:
+                raise ValueError(f"缺少列: {missing_cols}")
+            all_stock_dfs[s] = df
+        except Exception as e:
+            if VERBOSE_STOCK:
+                print(f"⚠️ {s} 加载失败: {repr(e)}")
         if i % 10 == 0 or i == len(symbols):
             print(f"  已加载 {i}/{len(symbols)} 只股票...")
 
+    if not all_stock_dfs:
+        raise RuntimeError("有效股票数据为空，无法回测")
+    symbols = list(all_stock_dfs.keys())
+
     # 3) 交易日序列（用第一只股票基准）
-    base_df = all_stock_dfs[symbols[0]].loc[BACKTEST_START:BACKTEST_END]
-    dates = base_df.index
+    dates = _pick_base_dates(all_stock_dfs, BACKTEST_START, BACKTEST_END)
     if len(dates) < 3:
         raise RuntimeError("回测区间交易日太少")
 
@@ -314,23 +361,25 @@ def backtest_topk_portfolio_rollover(initial_cash=1_000_000.0):
                 continue
             try:
                 train_df = df.loc[:date].iloc[:-1]
+                train_df = train_df[FEATURE_COLS + [TARGET_COL]].dropna()
                 if len(train_df) < MIN_TRAIN_SIZE:
                     continue
-
-                if TARGET_COL not in df.columns:
-                    raise ValueError(f"缺少预测目标列 {TARGET_COL}")
-                if REALIZED_RET_COL not in df.columns:
-                    raise ValueError(f"缺少真实收益列 {REALIZED_RET_COL}（请在 add_features 里加 ret_1d_fwd）")
 
                 X_train = train_df[FEATURE_COLS]
                 y_train = train_df[TARGET_COL]
                 model = _train_reg_model_safe(X_train, y_train, model_type_norm)
 
-                X_test = df.loc[[date], FEATURE_COLS]
+                X_test = df.loc[[date], FEATURE_COLS].dropna()
+                if X_test.empty:
+                    continue
                 pred = float(model.predict(X_test)[0])
+                if not np.isfinite(pred):
+                    continue
 
                 # 仅用于调试：date 的标签真值（不要用于记账）
                 true_target = float(df.loc[date, TARGET_COL])
+                if not np.isfinite(true_target):
+                    continue
 
                 preds.append((s, pred, true_target))
 

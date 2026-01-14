@@ -2,10 +2,20 @@ import ta
 import pandas as pd
 
 
+_REQUIRED_PRICE_COLS = {"收盘", "成交量"}
+
+
+def _ensure_columns(df: pd.DataFrame, cols, ctx: str):
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"{ctx} 缺少必要列: {missing}")
+
+
 def add_features(df: pd.DataFrame):
     """添加技术指标特征"""
 
     df = df.copy()
+    _ensure_columns(df, _REQUIRED_PRICE_COLS, "add_features")
 
     # 均线
     df["MA5"] = df["收盘"].rolling(5).mean()
@@ -36,6 +46,8 @@ def add_features(df: pd.DataFrame):
 
 
 def add_index_features(stock_df, index_df):
+    _ensure_columns(stock_df, {"收盘"}, "add_index_features(stock_df)")
+    _ensure_columns(index_df, {"收盘"}, "add_index_features(index_df)")
     df = stock_df.join(index_df["收盘"].rename("HS300_Close"), how="left")
 
     df["HS300_MA5"] = df["HS300_Close"].rolling(5).mean()

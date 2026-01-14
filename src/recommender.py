@@ -1,12 +1,20 @@
-import akshare as ak
 import pandas as pd
-import torch
 
-from src.data_loader import get_stock_history
+try:
+    import torch
+except ImportError:
+    torch = None
+
+from src.data_loader import (
+    get_stock_history,
+    get_index_constituents,
+    get_index_constituents_with_name,
+)
 from src.feature_engineering import add_features
-from src.model import train_model, train_transformer_joint, finetune_transformer
+from src.model import train_model_cls, train_transformer_joint, finetune_transformer
 from src.config import (
-    MODEL_TYPE,
+    INDEX_CODE,
+    MODEL_TYPE_CLS,
     USE_JOINT_TRANSFORMER,
     USE_JOINT_FINETUNE,
     JOINT_FINETUNE_EPOCHS,
@@ -34,6 +42,29 @@ def get_recommendation(prob):
         return "Sell"
 
 
+DEFAULT_FEATURES = [
+    "MA5", "MA10", "MA20",
+    "DIF", "DEA", "MACD",
+    "VOL_MA5", "Volatility"
+]
+
+
+def _get_feature_cols():
+    try:
+        from src.config import FEATURE_COLS
+        return FEATURE_COLS
+    except Exception:
+        return DEFAULT_FEATURES
+
+
+def _get_model_type_cls():
+    try:
+        from src.config import MODEL_TYPE_CLS as mt
+        return mt
+    except Exception:
+        return MODEL_TYPE_CLS
+
+
 # ======================================================
 # Transformer 专用预测函数
 # ======================================================
@@ -41,6 +72,9 @@ def transformer_predict(model, X, feature_cols=None):
     """
     使用最后 window 天数据做 Transformer 预测
     """
+    if torch is None:
+        raise ImportError("未安装 torch，Transformer 预测不可用")
+
     if feature_cols is None:
         feature_cols = getattr(model, "feature_cols", None)
 
@@ -51,6 +85,9 @@ def transformer_predict(model, X, feature_cols=None):
 
     if len(X_values) < model.window:
         return None
+
+    if not hasattr(model, "scaler"):
+        raise RuntimeError("Transformer 模型缺少 scaler，无法做归一化预测")
 
     X_scaled = model.scaler.transform(X_values)
 
@@ -78,46 +115,52 @@ def transformer_predict(model, X, feature_cols=None):
 def hs300_recommendation(use_realtime=False):
     global JOINT_TRANSFORMER_MODEL
 
-    hs300 = ak.index_stock_cons_csindex(symbol="000300")
-
-    features = [
-        "MA5", "MA10", "MA20",
-        "DIF", "DEA", "MACD",
-        "VOL_MA5", "Volatility"
-    ]
+    name_map = get_index_constituents_with_name(INDEX_CODE)
+    symbols = list(name_map.keys()) if name_map else get_index_constituents(INDEX_CODE)
+    if not symbols:
+        return pd.DataFrame()
+    features = _get_feature_cols()
+    model_type = (_get_model_type_cls() or "").lower()
 
     results = []
+    use_joint = bool(USE_JOINT_TRANSFORMER)
 
     # ==================================================
     # 🚀 联合训练 Transformer（只执行一次）
     # ==================================================
-    if MODEL_TYPE == "transformer" and USE_JOINT_TRANSFORMER:
+    if model_type == "transformer" and use_joint:
         if JOINT_TRANSFORMER_MODEL is None:
-            print("🚀 开始联合训练 Transformer（沪深300 横截面 + 时间）...")
+            print("🚀 开始联合训练 Transformer（指数成分股横截面 + 时间）...")
 
             all_dfs = []
-            for _, r in hs300.iterrows():
+            for code in symbols:
                 try:
-                    df_i = get_stock_history(r["成分券代码"], use_realtime=use_realtime)
+                    df_i = get_stock_history(code, use_realtime=use_realtime)
+                    if df_i is None or df_i.empty:
+                        continue
                     df_i = add_features(df_i)
+                    df_i = df_i[features + ["Target"]].dropna()
                     if len(df_i) >= 30:
                         all_dfs.append(df_i)
                 except Exception:
                     continue
 
-            JOINT_TRANSFORMER_MODEL = train_transformer_joint(
-                all_dfs,
-                feature_cols=features
-            )
-
-            print("✅ 联合 Transformer 训练完成")
+            try:
+                JOINT_TRANSFORMER_MODEL = train_transformer_joint(
+                    all_dfs,
+                    feature_cols=features
+                )
+                print("✅ 联合 Transformer 训练完成")
+            except Exception as exc:
+                print(f"⚠️ 联合 Transformer 训练失败：{repr(exc)}，将回退为逐股训练")
+                JOINT_TRANSFORMER_MODEL = None
+                use_joint = False
 
     # ==================================================
     # 📊 逐股票预测
     # ==================================================
-    for _, row in hs300.iterrows():
-        code = row["成分券代码"]
-        name = row["成分券名称"]
+    for code in symbols:
+        name = name_map.get(code, code)
 
         try:
             # 1️⃣ 数据加载
@@ -130,30 +173,26 @@ def hs300_recommendation(use_realtime=False):
 
             df = add_features(df_raw)
 
-            X = df[features]
-            y = df["Target"]
+            df_train = df[features + ["Target"]].dropna()
+            df_features = df[features].dropna()
 
-            if len(X) < 30:
+            if len(df_train) < 30 or len(df_features) == 0:
                 raise ValueError("样本过短")
 
             # 2️⃣ 模型训练（非联合 Transformer）
-            if MODEL_TYPE != "transformer" or not USE_JOINT_TRANSFORMER:
-                model = train_model(X[:-1], y[:-1], MODEL_TYPE)
+            if model_type != "transformer" or not use_joint:
+                model = train_model_cls(df_train[features], df_train["Target"], model_type=model_type)
 
             # 3️⃣ === 预测 ===
-            if MODEL_TYPE == "transformer":
-                model_use = (
-                    JOINT_TRANSFORMER_MODEL
-                    if USE_JOINT_TRANSFORMER
-                    else model
-                )
+            if model_type == "transformer":
+                model_use = JOINT_TRANSFORMER_MODEL if use_joint else model
 
-                if USE_JOINT_TRANSFORMER and USE_JOINT_FINETUNE and JOINT_FINETUNE_EPOCHS > 0:
+                if use_joint and USE_JOINT_FINETUNE and JOINT_FINETUNE_EPOCHS > 0:
                     try:
                         model_use = finetune_transformer(
                             model_use,
-                            X.iloc[:-1],
-                            y.iloc[:-1],
+                            df_train[features],
+                            df_train["Target"],
                             window=model_use.window,
                             epochs=JOINT_FINETUNE_EPOCHS,
                             lr=JOINT_FINETUNE_LR
@@ -161,12 +200,12 @@ def hs300_recommendation(use_realtime=False):
                     except ValueError:
                         pass
 
-                prob = transformer_predict(model_use, X, feature_cols=features)
+                prob = transformer_predict(model_use, df_features, feature_cols=features)
                 if prob is None:
                     raise ValueError("Transformer 数据不足")
 
             else:
-                prob = model.predict_proba(X.iloc[[-1]])[0, 1]
+                prob = model.predict_proba(df_features.iloc[[-1]])[0, 1]
 
             # 4️⃣ 投资建议
             rec = get_recommendation(prob)
@@ -188,6 +227,8 @@ def hs300_recommendation(use_realtime=False):
             continue
 
     df_result = pd.DataFrame(results)
+    if df_result.empty:
+        return df_result
     df_result = df_result.sort_values("Up_Prob", ascending=False)
     df_result.insert(0, "Rank", range(1, len(df_result) + 1))
 

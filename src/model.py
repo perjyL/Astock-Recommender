@@ -4,10 +4,21 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import Ridge
 
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
-from tqdm import tqdm
+try:
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, TensorDataset
+except ImportError:
+    torch = None
+    nn = None
+    DataLoader = None
+    TensorDataset = None
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, **kwargs):
+        return iterable
 
 from src.config import (
     RANDOM_STATE,
@@ -18,10 +29,44 @@ from src.config import (
 )
 
 
+def _require_torch():
+    if torch is None or nn is None:
+        raise ImportError("未安装 torch，Transformer 相关功能不可用，请先安装 torch")
+
+
+def _filter_valid_xy(X, y):
+    """清理 NaN/Inf，避免训练阶段报错。"""
+    X_values = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
+    y_values = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+
+    if len(X_values) != len(y_values):
+        raise ValueError("X 与 y 长度不一致")
+
+    if X_values.ndim == 1:
+        X_values = X_values.reshape(-1, 1)
+
+    mask = np.isfinite(X_values).all(axis=1) & np.isfinite(y_values)
+    if mask.sum() == 0:
+        raise ValueError("有效样本为空（可能全部为 NaN/Inf）")
+
+    if hasattr(X, "loc"):
+        X_clean = X.loc[mask]
+    else:
+        X_clean = X_values[mask]
+
+    if hasattr(y, "loc"):
+        y_clean = y.loc[mask]
+    else:
+        y_clean = y_values[mask]
+
+    return X_clean, y_clean
+
+
 # =========================================================
 # 分类模型
 # =========================================================
 def train_rf_cls(X, y):
+    X, y = _filter_valid_xy(X, y)
     model = RandomForestClassifier(
         n_estimators=300,
         max_depth=8,
@@ -38,6 +83,7 @@ def train_xgb_cls(X, y):
     except ImportError as exc:
         raise ImportError("未安装 xgboost（分类），请先执行: pip install xgboost") from exc
 
+    X, y = _filter_valid_xy(X, y)
     model = XGBClassifier(
         n_estimators=300,
         max_depth=5,
@@ -58,6 +104,7 @@ def train_xgb_cls(X, y):
 # 回归模型（Top-K组合核心）
 # =========================================================
 def train_ridge_reg(X, y):
+    X, y = _filter_valid_xy(X, y)
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
@@ -69,6 +116,7 @@ def train_ridge_reg(X, y):
 
 
 def train_rf_reg(X, y):
+    X, y = _filter_valid_xy(X, y)
     model = RandomForestRegressor(
         n_estimators=400,
         max_depth=10,
@@ -85,6 +133,7 @@ def train_xgb_reg(X, y):
     except ImportError as exc:
         raise ImportError("未安装 xgboost（回归），请先执行: pip install xgboost") from exc
 
+    X, y = _filter_valid_xy(X, y)
     model = XGBRegressor(
         n_estimators=500,
         max_depth=5,
@@ -103,31 +152,38 @@ def train_xgb_reg(X, y):
 # =========================================================
 # Transformer 分类
 # =========================================================
-class TransformerClassifier(torch.nn.Module):
-    def __init__(self, input_dim, window, d_model=64, nhead=4, num_layers=2):
-        super().__init__()
-        self.window = window
-        self.input_dim = input_dim
+if torch is not None and nn is not None:
+    class TransformerClassifier(torch.nn.Module):
+        def __init__(self, input_dim, window, d_model=64, nhead=4, num_layers=2):
+            super().__init__()
+            self.window = window
+            self.input_dim = input_dim
 
-        self.embedding = torch.nn.Linear(input_dim, d_model)
-        encoder_layer = torch.nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            batch_first=True
-        )
-        self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers)
-        self.fc = torch.nn.Linear(d_model, 1)
-        self.sigmoid = torch.nn.Sigmoid()
+            self.embedding = torch.nn.Linear(input_dim, d_model)
+            encoder_layer = torch.nn.TransformerEncoderLayer(
+                d_model=d_model,
+                nhead=nhead,
+                batch_first=True
+            )
+            self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers)
+            self.fc = torch.nn.Linear(d_model, 1)
+            self.sigmoid = torch.nn.Sigmoid()
 
-    def forward(self, x):
-        x = self.embedding(x)
-        x = self.encoder(x)
-        x = x[:, -1, :]
-        x = self.fc(x)
-        return self.sigmoid(x).squeeze()
+        def forward(self, x):
+            x = self.embedding(x)
+            x = self.encoder(x)
+            x = x[:, -1, :]
+            x = self.fc(x)
+            return self.sigmoid(x).squeeze()
+else:
+    class TransformerClassifier:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("未安装 torch，TransformerClassifier 不可用")
 
 
 def train_transformer(X, y, window=20, epochs=5):
+    _require_torch()
+    X, y = _filter_valid_xy(X, y)
     if len(X) <= window + 5:
         raise ValueError("样本长度不足以训练 Transformer")
 
@@ -170,13 +226,17 @@ def train_transformer_joint(
     batch_size=64,
     lr=1e-3
 ):
+    _require_torch()
     print(f"\n📊 联合 Transformer 训练样本构建中...")
 
     X_all, y_all = [], []
 
     for df in all_dfs:
-        X = df[feature_cols].values
-        y = df["Target"].values
+        df_use = df[feature_cols + ["Target"]].dropna()
+        if df_use.empty or len(df_use) <= window:
+            continue
+        X = df_use[feature_cols].values
+        y = df_use["Target"].values
         for i in range(window, len(X)):
             X_all.append(X[i - window:i])
             y_all.append(y[i])
@@ -236,9 +296,11 @@ def finetune_transformer(
     batch_size=64,
     lr=1e-4
 ):
+    _require_torch()
     if epochs <= 0:
         return base_model
 
+    X, y = _filter_valid_xy(X, y)
     if len(X) <= window + 5:
         raise ValueError("样本长度不足以微调 Transformer")
 
@@ -284,31 +346,44 @@ def finetune_transformer(
 # =========================================================
 # ✅ 统一入口：分类 / 回归 分开
 # =========================================================
-def train_model_cls(X, y):
-    if MODEL_TYPE_CLS == "randomforest":
+def _normalize_cls_type(model_type: str):
+    mt = (model_type or "").lower().strip()
+    if mt in {"rf", "randomforest", "random_forest"}:
+        return "randomforest"
+    if mt in {"xgb", "xgboost"}:
+        return "xgboost"
+    if mt in {"transformer"}:
+        return "transformer"
+    return mt
+
+
+def train_model_cls(X, y, model_type: str | None = None):
+    mt = _normalize_cls_type(model_type or MODEL_TYPE_CLS)
+    if mt == "randomforest":
         return train_rf_cls(X, y)
-    elif MODEL_TYPE_CLS == "xgboost":
+    elif mt == "xgboost":
         return train_xgb_cls(X, y)
-    elif MODEL_TYPE_CLS == "transformer":
+    elif mt == "transformer":
         return train_transformer(X, y, window=TRANSFORMER_WINDOW, epochs=TRANSFORMER_EPOCHS)
     else:
-        raise ValueError(f"未知 MODEL_TYPE_CLS: {MODEL_TYPE_CLS}")
+        raise ValueError(f"未知 MODEL_TYPE_CLS: {mt}")
 
 
-def train_model_reg(X, y):
-    if MODEL_TYPE_REG == "ridge":
+def train_model_reg(X, y, model_type: str | None = None):
+    mt = (model_type or MODEL_TYPE_REG).lower().strip()
+    if mt == "ridge":
         return train_ridge_reg(X, y)
-    elif MODEL_TYPE_REG == "rf_reg":
+    elif mt in {"rf_reg", "randomforest", "random_forest", "rf"}:
         return train_rf_reg(X, y)
-    elif MODEL_TYPE_REG == "xgb_reg":
+    elif mt in {"xgb_reg", "xgboost", "xgb"}:
         return train_xgb_reg(X, y)
     else:
-        raise ValueError(f"未知 MODEL_TYPE_REG: {MODEL_TYPE_REG}")
+        raise ValueError(f"未知 MODEL_TYPE_REG: {mt}")
 
 
 # =========================================================
 # 兼容旧代码：如果还有地方调用 train_model(X,y)
 # 默认按“分类”训练，避免你旧 backtest.py/演示炸掉
 # =========================================================
-def train_model(X, y):
-    return train_model_cls(X, y)
+def train_model(X, y, model_type: str | None = None):
+    return train_model_cls(X, y, model_type=model_type)
