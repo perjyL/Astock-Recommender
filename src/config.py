@@ -1,3 +1,7 @@
+PLOT_FONT = "auto"
+PLOT_LANG = "ch"
+
+
 # 指数代码（沪深300）
 # INDEX_CODE = "000300"
 INDEX_CODE = "000016"

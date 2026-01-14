@@ -247,7 +247,7 @@ def backtest_topk_portfolio_rollover(initial_cash=1_000_000.0):
         df = get_stock_history(s)
         df = add_features(df)
         all_stock_dfs[s] = df
-        print(df)
+        # print(df)
         if i % 10 == 0 or i == len(symbols):
             print(f"  已加载 {i}/{len(symbols)} 只股票...")
 
