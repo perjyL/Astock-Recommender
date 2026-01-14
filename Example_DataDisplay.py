@@ -7,7 +7,7 @@ import pandas as pd
 stocks = ak.index_stock_cons_csindex(symbol="000300")
 
 # 2.个股历史行情（日频）
-symbol = "603296"
+symbol = "002236"
 df = ak.stock_zh_a_hist(
     symbol=symbol,
     period="daily",

@@ -5,6 +5,8 @@ import pandas as pd
 def add_features(df: pd.DataFrame):
     """添加技术指标特征"""
 
+    df = df.copy()
+
     # 均线
     df["MA5"] = df["收盘"].rolling(5).mean()
     df["MA10"] = df["收盘"].rolling(10).mean()
@@ -25,7 +27,12 @@ def add_features(df: pd.DataFrame):
     # 标签：下一天是否上涨
     df["Target"] = (df["收盘"].shift(-1) > df["收盘"]).astype(int)
 
-    return df.dropna()
+    # 未来 1 / 5 / 10 日收益
+    df["ret_1d_fwd"] = df["收盘"].shift(-1) / df["收盘"] - 1
+    df["ret_5d"] = df["收盘"].shift(-5) / df["收盘"] - 1
+    df["ret_10d"] = df["收盘"].shift(-10) / df["收盘"] - 1
+
+    return df
 
 
 def add_index_features(stock_df, index_df):
@@ -36,4 +43,4 @@ def add_index_features(stock_df, index_df):
     df["HS300_Return"] = df["HS300_Close"].pct_change()
     df["HS300_Volatility"] = df["HS300_Return"].rolling(10).std()
 
-    return df.dropna()
+    return df

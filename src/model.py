@@ -1,17 +1,27 @@
 import copy
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from src.config import RANDOM_STATE, TRANSFORMER_WINDOW, TRANSFORMER_EPOCHS
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.linear_model import Ridge
 
-from tqdm import tqdm
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
+
+from src.config import (
+    RANDOM_STATE,
+    TRANSFORMER_WINDOW,
+    TRANSFORMER_EPOCHS,
+    MODEL_TYPE_CLS,
+    MODEL_TYPE_REG,
+)
 
 
-# ========== Random Forest ==========
-def train_rf(X, y):
+# =========================================================
+# 分类模型
+# =========================================================
+def train_rf_cls(X, y):
     model = RandomForestClassifier(
         n_estimators=300,
         max_depth=8,
@@ -22,12 +32,11 @@ def train_rf(X, y):
     return model
 
 
-# ========== XGBoost ==========
-def train_xgb(X, y):
+def train_xgb_cls(X, y):
     try:
         from xgboost import XGBClassifier
     except ImportError as exc:
-        raise ImportError("未安装 xgboost，请先执行: pip install xgboost") from exc
+        raise ImportError("未安装 xgboost（分类），请先执行: pip install xgboost") from exc
 
     model = XGBClassifier(
         n_estimators=300,
@@ -45,16 +54,58 @@ def train_xgb(X, y):
     return model
 
 
-# ========== Transformer ==========
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+# =========================================================
+# 回归模型（Top-K组合核心）
+# =========================================================
+def train_ridge_reg(X, y):
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    model = Ridge(alpha=1.0, random_state=RANDOM_STATE)
+    model.fit(X_scaled, y)
+
+    model.scaler = scaler
+    return model
 
 
+def train_rf_reg(X, y):
+    model = RandomForestRegressor(
+        n_estimators=400,
+        max_depth=10,
+        random_state=RANDOM_STATE,
+        n_jobs=-1
+    )
+    model.fit(X, y)
+    return model
+
+
+def train_xgb_reg(X, y):
+    try:
+        from xgboost import XGBRegressor
+    except ImportError as exc:
+        raise ImportError("未安装 xgboost（回归），请先执行: pip install xgboost") from exc
+
+    model = XGBRegressor(
+        n_estimators=500,
+        max_depth=5,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        objective="reg:squarederror",
+        random_state=RANDOM_STATE,
+        n_jobs=-1,
+        tree_method="hist"
+    )
+    model.fit(X, y)
+    return model
+
+
+# =========================================================
+# Transformer 分类
+# =========================================================
 class TransformerClassifier(torch.nn.Module):
     def __init__(self, input_dim, window, d_model=64, nhead=4, num_layers=2):
         super().__init__()
-
         self.window = window
         self.input_dim = input_dim
 
@@ -64,25 +115,19 @@ class TransformerClassifier(torch.nn.Module):
             nhead=nhead,
             batch_first=True
         )
-        self.encoder = torch.nn.TransformerEncoder(
-            encoder_layer,
-            num_layers
-        )
+        self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers)
         self.fc = torch.nn.Linear(d_model, 1)
         self.sigmoid = torch.nn.Sigmoid()
 
     def forward(self, x):
         x = self.embedding(x)
         x = self.encoder(x)
-        x = x[:, -1, :]          # 取最后一天
+        x = x[:, -1, :]
         x = self.fc(x)
         return self.sigmoid(x).squeeze()
 
 
 def train_transformer(X, y, window=20, epochs=5):
-    """
-    Transformer 只训练一次（不逐日）
-    """
     if len(X) <= window + 5:
         raise ValueError("样本长度不足以训练 Transformer")
 
@@ -90,21 +135,23 @@ def train_transformer(X, y, window=20, epochs=5):
     X_scaled = scaler.fit_transform(X)
 
     X_seq, y_seq = [], []
+    y_values = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+
     for i in range(window, len(X_scaled)):
         X_seq.append(X_scaled[i - window:i])
-        y_seq.append(y.iloc[i])
+        y_seq.append(y_values[i])
 
     X_seq = torch.tensor(np.array(X_seq), dtype=torch.float32)
-    y_seq = torch.tensor(np.array(y_seq), dtype=torch.float32).unsqueeze(1)
+    y_seq = torch.tensor(np.array(y_seq), dtype=torch.float32)
 
-    model = TransformerClassifier(input_dim=X.shape[1])
+    model = TransformerClassifier(input_dim=X.shape[1], window=window)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.BCELoss()
 
     model.train()
-    for epoch in range(epochs):
+    for _ in range(epochs):
         optimizer.zero_grad()
-        output = model(X_seq)
+        output = model(X_seq).squeeze()
         loss = criterion(output, y_seq)
         loss.backward()
         optimizer.step()
@@ -114,64 +161,12 @@ def train_transformer(X, y, window=20, epochs=5):
     model.eval()
     return model
 
-# def train_transformer_joint(all_stock_dfs, feature_cols):
-#     """
-#     all_stock_dfs: List[pd.DataFrame]，每个元素是一只股票的特征DF
-#     """
-#     X_seq, y_seq = [], []
-#
-#     for df in all_stock_dfs:
-#         if len(df) <= TRANSFORMER_WINDOW:
-#             continue
-#
-#         X = df[feature_cols].values
-#         y = df["Target"].values
-#
-#         for i in range(TRANSFORMER_WINDOW, len(df)):
-#             X_seq.append(X[i - TRANSFORMER_WINDOW:i])
-#             y_seq.append(y[i])
-#
-#     X_seq = np.array(X_seq)
-#     y_seq = np.array(y_seq)
-#
-#     scaler = StandardScaler()
-#     N, T, F = X_seq.shape
-#     X_seq = scaler.fit_transform(X_seq.reshape(-1, F)).reshape(N, T, F)
-#
-#     X_tensor = torch.tensor(X_seq, dtype=torch.float32)
-#     y_tensor = torch.tensor(y_seq, dtype=torch.float32).unsqueeze(1)
-#
-#     model = TransformerClassifier(input_dim=F)
-#     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-#     criterion = nn.BCELoss()
-#
-#     model.train()
-#     for epoch in range(TRANSFORMER_EPOCHS):
-#         optimizer.zero_grad()
-#         pred = model(X_tensor)
-#         loss = criterion(pred, y_tensor)
-#         loss.backward()
-#         optimizer.step()
-#         print(f"[Transformer Joint] Epoch {epoch+1}, Loss={loss.item():.4f}")
-#
-#     model.eval()
-#     model.scaler = scaler
-#     model.window = TRANSFORMER_WINDOW
-#     model.feature_cols = feature_cols
-#
-#     return model
-
-from tqdm import tqdm
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
-
 
 def train_transformer_joint(
     all_dfs,
     feature_cols,
-    window=20,
-    epochs=8,
+    window=TRANSFORMER_WINDOW,
+    epochs=TRANSFORMER_EPOCHS,
     batch_size=64,
     lr=1e-3
 ):
@@ -182,7 +177,6 @@ def train_transformer_joint(
     for df in all_dfs:
         X = df[feature_cols].values
         y = df["Target"].values
-
         for i in range(window, len(X)):
             X_all.append(X[i - window:i])
             y_all.append(y[i])
@@ -193,43 +187,26 @@ def train_transformer_joint(
     X_all = np.array(X_all)
     y_all = np.array(y_all)
 
-    # ===== 标准化（全市场统一）=====
     N, T, F = X_all.shape
     scaler = StandardScaler()
-    X_all_2d = X_all.reshape(-1, F)
-    X_all_scaled = scaler.fit_transform(X_all_2d).reshape(N, T, F)
+    X_all_scaled = scaler.fit_transform(X_all.reshape(-1, F)).reshape(N, T, F)
 
     X_all = torch.tensor(X_all_scaled, dtype=torch.float32)
     y_all = torch.tensor(y_all, dtype=torch.float32)
 
-    print(f"✅ 样本构建完成")
-    print(f"   样本数: {len(X_all)}")
-    print(f"   Window: {window}")
-    print(f"   特征数: {X_all.shape[-1]}")
+    print(f"✅ 样本构建完成 | 样本数={len(X_all)} Window={window} 特征数={F}")
 
     dataset = TensorDataset(X_all, y_all)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    model = TransformerClassifier(
-        input_dim=X_all.shape[-1],
-        window=window
-    )
-
+    model = TransformerClassifier(input_dim=F, window=window)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = torch.nn.BCELoss()
+    criterion = nn.BCELoss()
 
-    # ===============================
-    # 🚀 正式训练（带进度）
-    # ===============================
     for epoch in range(1, epochs + 1):
         model.train()
         epoch_loss = 0.0
-
-        pbar = tqdm(
-            dataloader,
-            desc=f"Epoch [{epoch}/{epochs}]",
-            leave=True
-        )
+        pbar = tqdm(dataloader, desc=f"Epoch [{epoch}/{epochs}]", leave=True)
 
         for X_batch, y_batch in pbar:
             optimizer.zero_grad()
@@ -241,16 +218,12 @@ def train_transformer_joint(
             epoch_loss += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-        avg_loss = epoch_loss / len(dataloader)
-        print(f"✅ Epoch {epoch} 完成 | Avg Loss: {avg_loss:.4f}\n")
-
-    print("🎉 联合 Transformer 训练结束\n")
+        print(f"✅ Epoch {epoch} 完成 | Avg Loss: {epoch_loss / len(dataloader):.4f}\n")
 
     model.scaler = scaler
     model.window = window
     model.feature_cols = feature_cols
     model.eval()
-
     return model
 
 
@@ -258,7 +231,7 @@ def finetune_transformer(
     base_model,
     X,
     y,
-    window=20,
+    window=TRANSFORMER_WINDOW,
     epochs=1,
     batch_size=64,
     lr=1e-4
@@ -288,7 +261,7 @@ def finetune_transformer(
 
     model = copy.deepcopy(base_model)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = torch.nn.BCELoss()
+    criterion = nn.BCELoss()
 
     dataset = TensorDataset(X_seq, y_seq)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -304,19 +277,38 @@ def finetune_transformer(
 
     model.scaler = scaler
     model.window = window
-    model.feature_cols = getattr(base_model, "feature_cols", None)
     model.eval()
     return model
 
 
-
-# ========== 统一接口 ==========
-def train_model(X, y, model_type="randomforest"):
-    if model_type == "randomforest":
-        return train_rf(X, y)
-    elif model_type == "xgboost":
-        return train_xgb(X, y)
-    elif model_type == "transformer":
-        return train_transformer(X, y)
+# =========================================================
+# ✅ 统一入口：分类 / 回归 分开
+# =========================================================
+def train_model_cls(X, y):
+    if MODEL_TYPE_CLS == "randomforest":
+        return train_rf_cls(X, y)
+    elif MODEL_TYPE_CLS == "xgboost":
+        return train_xgb_cls(X, y)
+    elif MODEL_TYPE_CLS == "transformer":
+        return train_transformer(X, y, window=TRANSFORMER_WINDOW, epochs=TRANSFORMER_EPOCHS)
     else:
-        raise ValueError("model_type must be 'randomforest', 'xgboost', or 'transformer'")
+        raise ValueError(f"未知 MODEL_TYPE_CLS: {MODEL_TYPE_CLS}")
+
+
+def train_model_reg(X, y):
+    if MODEL_TYPE_REG == "ridge":
+        return train_ridge_reg(X, y)
+    elif MODEL_TYPE_REG == "rf_reg":
+        return train_rf_reg(X, y)
+    elif MODEL_TYPE_REG == "xgb_reg":
+        return train_xgb_reg(X, y)
+    else:
+        raise ValueError(f"未知 MODEL_TYPE_REG: {MODEL_TYPE_REG}")
+
+
+# =========================================================
+# 兼容旧代码：如果还有地方调用 train_model(X,y)
+# 默认按“分类”训练，避免你旧 backtest.py/演示炸掉
+# =========================================================
+def train_model(X, y):
+    return train_model_cls(X, y)
