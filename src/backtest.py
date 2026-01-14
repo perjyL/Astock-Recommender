@@ -3,7 +3,11 @@ import time
 import pandas as pd
 import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix, brier_score_loss
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, **kwargs):
+        return iterable
 
 from src.data_loader import get_stock_history, get_index_constituents
 from src.feature_engineering import add_features
@@ -36,11 +40,7 @@ def prob_to_signal(prob):
 def _train_model_safe(X_train, y_train, model_type):
     """兼容 train_model(X,y) 或 train_model(X,y,model_type) 两种签名"""
     from src.model import train_model_cls
-    try:
-        return train_model_cls(X_train, y_train, model_type)
-    except TypeError:
-        # train_model_cls 只有两个参数
-        return train_model_cls(X_train, y_train)
+    return train_model_cls(X_train, y_train, model_type=model_type)
 
 
 def _predict_prob_safe(model, X_test, model_type, X_hist_for_transformer=None):
@@ -50,8 +50,11 @@ def _predict_prob_safe(model, X_test, model_type, X_hist_for_transformer=None):
     if "transformer" in mt:
         # transformer 没有 predict_proba，用你以前的 transformer_predict 逻辑
         from src.recommender import transformer_predict
-        prob = transformer_predict(model, X_hist_for_transformer)
-        return prob
+        try:
+            prob = transformer_predict(model, X_hist_for_transformer)
+            return prob
+        except Exception:
+            return None
 
     # sklearn/xgb 分类模型
     if hasattr(model, "predict_proba"):
@@ -74,6 +77,8 @@ def backtest_single_stock(
     features = _get_feature_cols()
 
     df = get_stock_history(symbol)
+    if df is None or df.empty:
+        return pd.DataFrame()
     df = add_features(df)
     test_df = df.loc[start_test_date:end_test_date]
 
@@ -84,6 +89,7 @@ def backtest_single_stock(
     for date in test_df.index:
         # walk-forward：预测当天时，只用到 date 之前的数据（不含当天未来标签）
         train_df = df.loc[:date].iloc[:-1]
+        train_df = train_df[features + ["Target"]].dropna()
         if len(train_df) < min_train_size:
             continue
 
@@ -91,7 +97,9 @@ def backtest_single_stock(
         y_train = train_df["Target"]
         model = _train_model_safe(X_train, y_train, MODEL_TYPE_CLS)
 
-        X_test = df.loc[[date], features]
+        X_test = df.loc[[date], features].dropna()
+        if X_test.empty:
+            continue
 
         prob_up = _predict_prob_safe(
             model, X_test, MODEL_TYPE_CLS, X_hist_for_transformer=train_df[features]

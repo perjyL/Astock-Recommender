@@ -21,7 +21,7 @@ from src.backtest import (
     evaluate_overall
 )
 
-import pandas as pd
+import os
 
 
 # =========================
@@ -88,6 +88,7 @@ def run_hs300_backtest():
     print(results["signal"].value_counts())
 
     # 保存回测结果（方便写报告/画图）
+    os.makedirs("output", exist_ok=True)
     results.to_csv("output/hs300_backtest_results.csv", index=False)
     print("\n回测结果已保存为：hs300_backtest_results.csv")
 
