@@ -13,7 +13,7 @@ from src.config import INDEX_CODE, MODEL_TYPE_REG
 # 默认参数
 # -----------------------------
 DEFAULT_FEATURES = ["MA5", "MA10", "MA20", "MACD", "DIF", "DEA", "VOL_MA5", "Volatility"]
-DEFAULT_START = "2025-11-01"
+DEFAULT_START = "2025-01-01"
 DEFAULT_END = "2025-12-31"
 DEFAULT_MIN_TRAIN = 200
 DEFAULT_TOP_K = 20
